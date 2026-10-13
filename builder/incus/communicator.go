@@ -30,7 +30,17 @@ func (c *Communicator) Start(ctx context.Context, cmd *packersdk.RemoteCmd) erro
 		return err
 	}
 
-	localCmd.Stdin = cmd.Stdin
+	if cmd.Stdin != nil {
+		pipe, pipeErr := localCmd.StdinPipe()
+		if pipeErr != nil {
+			return pipeErr
+		}
+		go func() {
+			io.Copy(pipe, cmd.Stdin)
+			pipe.Close()
+		}()
+	}
+
 	localCmd.Stdout = cmd.Stdout
 	localCmd.Stderr = cmd.Stderr
 	if err := localCmd.Start(); err != nil {
@@ -40,6 +50,9 @@ func (c *Communicator) Start(ctx context.Context, cmd *packersdk.RemoteCmd) erro
 	go func() {
 		exitStatus := 0
 		if err := localCmd.Wait(); err != nil {
+			if closer, ok := cmd.Stdin.(io.Closer); ok {
+				closer.Close()
+			}
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				exitStatus = 1
 
